@@ -71,8 +71,19 @@ public class AppTest {
         System.out.println(ASN1Dump.dumpAsString(securityInfos));
     }
 
+    // KDF hardwired for cipher = AES and keylength = 128
+    private byte[] KDF(byte[] K, byte[] c) {
+        final var sha1 = new SHA1Digest();
+        sha1.reset();
+        sha1.update(K, 0, K.length);
+        sha1.update(c, 0, 4);
+        final var digest = new byte[sha1.getDigestSize()];
+        sha1.doFinal(digest, 0);
+        return Arrays.copyOf(digest, 16);
+    }
+
     @Test
-    public void testKpi() {
+    public void testCalculateKpi() {
 
         final var documentNumber = "T220001293";
         final var dateOfBirth = "6408125";
@@ -87,13 +98,7 @@ public class AppTest {
 
         assertThat(pi, Matchers.equalTo(Hex.decode("7E2D2A41 C74EA0B3 8CD36F86 3939BFA8 E9032AAD")));
 
-        // assume selected cipher = AES, keylength = 128
-        sha1.reset();
-        sha1.update(pi, 0, pi.length);
-        sha1.update(new byte[]{0x00, 0x00, 0x00, 0x03}, 0, 4);
-        final var digest = new byte[sha1.getDigestSize()];
-        sha1.doFinal(digest, 0);
-        final var Kpi = Arrays.copyOf(digest, 16);
+        final var Kpi = KDF(pi, new byte[]{0x00, 0x00, 0x00, 0x03});
 
         assertThat(Kpi, Matchers.equalTo(Hex.decode("89DED1B2 6624EC1E 634C1989 302849DD")));
     }
@@ -238,5 +243,13 @@ public class AppTest {
         final var K = C_spec.getQ().multiply(t_spec.getD()).normalize().getXCoord().getEncoded();
 
         assertThat(K, Matchers.equalTo(Hex.decode("28768D20 701247DA E81804C9 E780EDE5 82A9996D B4A31502 0B273319 7DB84925")));
+
+        final var K_enc = KDF(K, new byte[]{0x00, 0x00, 0x00, 0x01});
+
+        assertThat(K_enc, Matchers.equalTo(Hex.decode("F5F0E35C 0D7161EE 6724EE51 3A0D9A7F")));
+
+        final var K_mac = KDF(K, new byte[]{0x00, 0x00, 0x00, 0x02});
+
+        assertThat(K_mac, Matchers.equalTo(Hex.decode("FE251C78 58B356B2 4514B3BD 5F4297D1")));
     }
 }
