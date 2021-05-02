@@ -22,10 +22,8 @@ import org.junit.Before;
 import org.junit.Test;
 
 import javax.crypto.KeyAgreement;
-import java.io.IOException;
 import java.math.BigInteger;
 import java.security.KeyPairGenerator;
-import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.security.Security;
 import java.security.spec.AlgorithmParameterSpec;
@@ -36,7 +34,14 @@ import java.util.stream.Stream;
 import static org.junit.Assert.assertThat;
 
 /**
- * Unit test for simple App.
+ * Unit test demonstrating:
+ * ICAO
+ * Doc 9303
+ * Machine Readable Travel Documents
+ * Seventh Edition, 2015
+ * Part 11: Security Mechanisms for MRTDs
+ * WORKED EXAMPLE: PACE – GENERIC MAPPING (INFORMATIVE)
+ * ECDH based example
  */
 public class AppTest {
     @Before
@@ -46,7 +51,7 @@ public class AppTest {
     }
 
     @Test
-    public void testParseCardAccess() throws NoSuchAlgorithmException, IOException {
+    public void testParseCardAccess() {
 
         final var CardAccess = new byte[]{
                 0x31, 0x14, 0x30, 0x12, 0x06, 0x0A, 0x04, 0x00,
@@ -106,8 +111,6 @@ public class AppTest {
         assertThat(authObject.getTagNo(), Matchers.equalTo(0x80 & 0x1f));
         assertThat(authObject.isExplicit(), Matchers.equalTo(false));
 
-        System.out.println(authObject.getObject().getClass().getName());
-
         final var z = ASN1OctetString.getInstance(authObject.getObject()).getOctets();
         assertThat(z, Matchers.equalTo(Hex.decode("95 A3 A0 16 52 2E E9 8D 01 E7 6C B6 B9 8B 42 C3")));
 
@@ -152,32 +155,18 @@ public class AppTest {
     @Test
     public void testMapNonce() throws Exception {
 
-        // Chip's public key C
-        final var C_data = Hex.decode("04 824FBA91 C9CBE26B EF53A0EB E7342A3B F178CEA9 F45DE0B7 0AA60165 1FBA3F57 30D8C879 AAA9C9F7 3991E61B 58F4D52E B87A0A0C 709A49DC 63719363 CCD13C54");
+        // nonce s
+        final var s = new BigInteger(Hex.decode("3F00C4D3 9D153F2B 2A214A07 8D899B22"));
+
         // Terminal's private key t
         final var t_data = Hex.decode("7F4EF07B 9EA82FD7 8AD689B3 8D0BC78C F21F249D 953BC46F 4C6E1925 9C010F99");
 
         final var params = ECNamedCurveTable.getParameterSpec("BrainpoolP256r1");
-
-        final var C_spec = new ECPublicKeySpec(params.getCurve().decodePoint(C_data), params);
-        final var t_spec = new ECPrivateKeySpec(new BigInteger(t_data), params);
-//        KeyFactory kf = KeyFactory.getInstance("ECDH", "BC");
-//        final var C = kf.generatePublic(C_spec);
-//        final var t = kf.generatePrivate(t_spec);
-
-        // H := C * t
-        final var H = C_spec.getQ().multiply(t_spec.getD());
-
-        assertThat(H.getEncoded(false), Matchers.equalTo(Hex.decode("04 60332EF2 450B5D24 7EF6D386 8397D398 852ED6E8 CAF6FFEE F6BF85CA 57057FD5 0840CA74 15BAF3E4 3BD414D3 5AA4608B 93A2CAF3 A4E3EA4E 82C9C13D 03EB7181")));
-
-        // G' := G * s + H
-        final var s = new BigInteger(Hex.decode("3F00C4D3 9D153F2B 2A214A07 8D899B22"));
         final var G = params.getG();
-        final var Gmapped = G.multiply(s).add(H);
 
-        assertThat(Gmapped.getEncoded(false), Matchers.equalTo(Hex.decode("04 8CED63C9 1426D4F0 EB1435E7 CB1D74A4 6723A0AF 21C89634 F65A9AE8 7A9265E2 8C879506 743F8611 AC33645C 5B985C80 B5F09A0B 83407C1B 6A4D857A E76FE522")));
+        final var t_spec = new ECPrivateKeySpec(new BigInteger(t_data), params);
 
-        // command data (Terminal public key = G * Terminal private key)
+        // note: Terminal public key = G * Terminal private key
         final var commandData = new DLApplicationSpecific(0x1c,
                 new DLTaggedObject(
                         false,
@@ -187,5 +176,27 @@ public class AppTest {
         );
 
         assertThat(commandData.getEncoded(), Matchers.equalTo(Hex.decode("7c 43 81 41 04 7acf3efc982ec45565a4b155129efbc74650dcbfa6362d896fc70262e0c2cc5e544552dcb6725218799115b55c9baa6d9f6bc3a9618e70c25af71777a9c4922d")));
+
+        final var responseData = Hex.decode("7C 43 82 41 04 824FBA91 C9CBE26B EF53A0EB E7342A3B F178CEA9 F45DE0B7 0AA60165 1FBA3F57 30D8C879 AAA9C9F7 3991E61B 58F4D52E B87A0A0C 709A49DC 63719363 CCD13C54");
+
+        final var authTemplate = ASN1ApplicationSpecific.getInstance(responseData);
+        assertThat(authTemplate.getApplicationTag(), Matchers.equalTo(0x1c));
+
+        final var authObject = ASN1TaggedObject.getInstance(authTemplate.getContents());
+        assertThat(authObject.getTagNo(), Matchers.equalTo(0x02));
+
+        // Chip's public key C
+        final var C_data = ASN1OctetString.getInstance(authObject.getObject()).getOctets();
+        final var C_spec = new ECPublicKeySpec(params.getCurve().decodePoint(C_data), params);
+
+        // H := C * t
+        final var H = C_spec.getQ().multiply(t_spec.getD());
+
+        assertThat(H.getEncoded(false), Matchers.equalTo(Hex.decode("04 60332EF2 450B5D24 7EF6D386 8397D398 852ED6E8 CAF6FFEE F6BF85CA 57057FD5 0840CA74 15BAF3E4 3BD414D3 5AA4608B 93A2CAF3 A4E3EA4E 82C9C13D 03EB7181")));
+
+        // G' := G * s + H
+        final var Gmapped = G.multiply(s).add(H);
+
+        assertThat(Gmapped.getEncoded(false), Matchers.equalTo(Hex.decode("04 8CED63C9 1426D4F0 EB1435E7 CB1D74A4 6723A0AF 21C89634 F65A9AE8 7A9265E2 8C879506 743F8611 AC33645C 5B985C80 B5F09A0B 83407C1B 6A4D857A E76FE522")));
     }
 }
