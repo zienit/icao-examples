@@ -156,7 +156,7 @@ public class AppTest {
     public void testMapNonce() throws Exception {
 
         // nonce s
-        final var s = new BigInteger(Hex.decode("3F00C4D3 9D153F2B 2A214A07 8D899B22"));
+        final var s = new BigInteger(1, Hex.decode("3F00C4D3 9D153F2B 2A214A07 8D899B22"));
 
         // Terminal's private key t
         final var t_data = Hex.decode("7F4EF07B 9EA82FD7 8AD689B3 8D0BC78C F21F249D 953BC46F 4C6E1925 9C010F99");
@@ -164,9 +164,9 @@ public class AppTest {
         final var params = ECNamedCurveTable.getParameterSpec("BrainpoolP256r1");
         final var G = params.getG();
 
-        final var t_spec = new ECPrivateKeySpec(new BigInteger(t_data), params);
+        final var t_spec = new ECPrivateKeySpec(new BigInteger(1, t_data), params);
 
-        // note: Terminal public key = G * Terminal private key
+        // note: Terminal public key = G * t
         final var commandData = new DLApplicationSpecific(0x1c,
                 new DLTaggedObject(
                         false,
@@ -175,7 +175,7 @@ public class AppTest {
                 )
         );
 
-        assertThat(commandData.getEncoded(), Matchers.equalTo(Hex.decode("7c 43 81 41 04 7acf3efc982ec45565a4b155129efbc74650dcbfa6362d896fc70262e0c2cc5e544552dcb6725218799115b55c9baa6d9f6bc3a9618e70c25af71777a9c4922d")));
+        assertThat(commandData.getEncoded(), Matchers.equalTo(Hex.decode("7c 43 81 41 04 7A CF 3E FC 98 2E C4 55 65 A4 B1 55 12 9E FB C7 46 50 DC BF A6 36 2D 89 6F C7 02 62 E0 C2 CC 5E 54 45 52 DC B6 72 52 18 79 91 15 B5 5C 9B AA 6D 9F 6B C3 A9 61 8E 70 C2 5A F7 17 77 A9 C4 92 2D")));
 
         final var responseData = Hex.decode("7C 43 82 41 04 824FBA91 C9CBE26B EF53A0EB E7342A3B F178CEA9 F45DE0B7 0AA60165 1FBA3F57 30D8C879 AAA9C9F7 3991E61B 58F4D52E B87A0A0C 709A49DC 63719363 CCD13C54");
 
@@ -195,8 +195,48 @@ public class AppTest {
         assertThat(H.getEncoded(false), Matchers.equalTo(Hex.decode("04 60332EF2 450B5D24 7EF6D386 8397D398 852ED6E8 CAF6FFEE F6BF85CA 57057FD5 0840CA74 15BAF3E4 3BD414D3 5AA4608B 93A2CAF3 A4E3EA4E 82C9C13D 03EB7181")));
 
         // G' := G * s + H
-        final var Gmapped = G.multiply(s).add(H);
+        final var Gmapped = G.multiply(s).add(H).normalize();
 
         assertThat(Gmapped.getEncoded(false), Matchers.equalTo(Hex.decode("04 8CED63C9 1426D4F0 EB1435E7 CB1D74A4 6723A0AF 21C89634 F65A9AE8 7A9265E2 8C879506 743F8611 AC33645C 5B985C80 B5F09A0B 83407C1B 6A4D857A E76FE522")));
+    }
+
+    @Test
+    public void testPerformKeyAgreement() throws Exception {
+
+        // Terminal's private key t
+        final var t_data = Hex.decode("A73FB703 AC1436A1 8E0CFA5A BB3F7BEC 7A070E7A 6788486B EE230C4A 22762595");
+
+        final var params = ECNamedCurveTable.getParameterSpec("BrainpoolP256r1");
+        final var Gmapped = params.getCurve().decodePoint(Hex.decode("04 8CED63C9 1426D4F0 EB1435E7 CB1D74A4 6723A0AF 21C89634 F65A9AE8 7A9265E2 8C879506 743F8611 AC33645C 5B985C80 B5F09A0B 83407C1B 6A4D857A E76FE522"));
+//        final var paramsMapped = new ECDomainParameters(params.getCurve(), Gmapped, params.getN(), params.getH(), params.getSeed());
+
+        final var t_spec = new ECPrivateKeySpec(new BigInteger(1, t_data), params);
+
+        // note: Terminal public key = G' * t
+        final var commandData = new DLApplicationSpecific(0x1c,
+                new DLTaggedObject(
+                        false,
+                        0x03,
+                        new DEROctetString(Gmapped.multiply(t_spec.getD()).normalize().getEncoded(false))
+                )
+        );
+
+        assertThat(commandData.getEncoded(), Matchers.equalTo(Hex.decode("7C 43 83 41 04 2D B7 A6 4C 03 55 04 4E C9 DF 19 05 14 C6 25 CB A2 CE A4 87 54 88 71 22 F3 A5 EF 0D 5E DD 30 1C 35 56 F3 B3 B1 86 DF 10 B8 57 B5 8F 6A 7E B8 0F 20 BA 5D C7 BE 1D 43 D9 BF 85 01 49 FB B3 64 62")));
+
+        final var responseData = Hex.decode("7C 43 84 41 04 9E 88 0F 84 29 05 B8 B3 18 1F 7A F7 CA A9 F0 EF B7 43 84 7F 44 A3 06 D2 D2 8C 1D 9E C6 5D F6 DB 77 64 B2 22 77 A2 ED DC 3C 26 5A 9F 01 8F 9C B8 52 E1 11 B7 68 B3 26 90 4B 59 A0 19 37 76 F0 94");
+
+        final var authTemplate = ASN1ApplicationSpecific.getInstance(responseData);
+        assertThat(authTemplate.getApplicationTag(), Matchers.equalTo(0x1c));
+
+        final var authObject = ASN1TaggedObject.getInstance(authTemplate.getContents());
+        assertThat(authObject.getTagNo(), Matchers.equalTo(0x04));
+
+        // Chip's public key C
+        final var C_data = ASN1OctetString.getInstance(authObject.getObject()).getOctets();
+        final var C_spec = new ECPublicKeySpec(params.getCurve().decodePoint(C_data), params);
+
+        final var K = C_spec.getQ().multiply(t_spec.getD()).normalize().getXCoord().getEncoded();
+
+        assertThat(K, Matchers.equalTo(Hex.decode("28768D20 701247DA E81804C9 E780EDE5 82A9996D B4A31502 0B273319 7DB84925")));
     }
 }
