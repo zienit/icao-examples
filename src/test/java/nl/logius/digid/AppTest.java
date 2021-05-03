@@ -9,6 +9,7 @@ import org.bouncycastle.crypto.agreement.ECDHBasicAgreement;
 import org.bouncycastle.crypto.digests.SHA1Digest;
 import org.bouncycastle.crypto.engines.AESEngine;
 import org.bouncycastle.crypto.generators.ECKeyPairGenerator;
+import org.bouncycastle.crypto.macs.CMac;
 import org.bouncycastle.crypto.modes.CBCBlockCipher;
 import org.bouncycastle.crypto.params.ECDomainParameters;
 import org.bouncycastle.crypto.params.ECKeyGenerationParameters;
@@ -22,6 +23,7 @@ import org.junit.Before;
 import org.junit.Test;
 
 import javax.crypto.KeyAgreement;
+import java.io.IOException;
 import java.math.BigInteger;
 import java.security.KeyPairGenerator;
 import java.security.SecureRandom;
@@ -42,8 +44,12 @@ import static org.junit.Assert.assertThat;
  * Part 11: Security Mechanisms for MRTDs
  * WORKED EXAMPLE: PACE – GENERIC MAPPING (INFORMATIVE)
  * ECDH based example
+ * <p>
+ * The tests focus on the cryptography and on the construction of command- and responseData.
+ * The enveloping APDUs are ignored because of their trivial nature.
  */
 public class AppTest {
+
     @Before
     public void setup() {
         Security.addProvider(new org.bouncycastle.jce.provider.BouncyCastleProvider());
@@ -55,26 +61,29 @@ public class AppTest {
 
         final var CardAccess = new byte[]{
                 0x31, 0x14, 0x30, 0x12, 0x06, 0x0A, 0x04, 0x00,
-                0x7F, 0x00, 0x07, 0x02, 0x02, 0x04, 0x02, 0x02,
+                0x7F, 0x00, 0x07, 0x02, 0x02, 0x04, 0x02, 0x04,
                 0x02, 0x01, 0x02, 0x02, 0x01, 0x0D
         };
 
-        final var id_PACE = new ASN1ObjectIdentifier("0.4.0.127.0.7.2.2.4");
+        final var id_PACE_DH_GM_AES_CBC_CMAC_256 = new ASN1ObjectIdentifier("0.4.0.127.0.7.2.2.4.2.4");
 
         final var securityInfos = ASN1Set.getInstance(CardAccess);
 
         final var paceInfo = Stream.iterate(0, i -> i < securityInfos.size(), i -> i + 1)
                 .map(i -> ASN1Sequence.getInstance(securityInfos.getObjectAt(i)))
-                .filter(securityInfo -> ASN1ObjectIdentifier.getInstance(securityInfo.getObjectAt(0)).on(id_PACE))
-                .findFirst().get();
+                .filter(securityInfo -> ASN1ObjectIdentifier.getInstance(securityInfo.getObjectAt(0)).equals(id_PACE_DH_GM_AES_CBC_CMAC_256))
+                .findFirst();
 
-        System.out.println(ASN1Dump.dumpAsString(securityInfos));
+        assertThat(paceInfo.isPresent(), Matchers.equalTo(true));
+
+        final var parameterId = ASN1Integer.getInstance(paceInfo.get().getObjectAt(2));
+        assertThat(parameterId.intValueExact(), Matchers.equalTo(13));
     }
 
-    // KDF hardwired for cipher = AES and keylength = 128
+    // KDF hardwired for cipher = AES and keylength = 128, as applicable to the ICAO PACE Worked Example
     private byte[] KDF(byte[] K, byte[] c) {
+
         final var sha1 = new SHA1Digest();
-        sha1.reset();
         sha1.update(K, 0, K.length);
         sha1.update(c, 0, 4);
         final var digest = new byte[sha1.getDigestSize()];
@@ -106,15 +115,14 @@ public class AppTest {
     @Test
     public void testEncryptedNonce() throws InvalidCipherTextException {
 
-        final var APDU_RESPONSE = Hex.decode("7C 12 80 10 95 A3 A0 16 52 2E E9 8D 01 E7 6C B6 B9 8B 42 C3 90 00");
+        final var responseData = Hex.decode("7C 12 80 10 95 A3 A0 16 52 2E E9 8D 01 E7 6C B6 B9 8B 42 C3");
 
-        final var authTemplate = ASN1ApplicationSpecific.getInstance(Arrays.copyOf(APDU_RESPONSE, APDU_RESPONSE.length - 2));
-        assertThat(authTemplate.getApplicationTag(), Matchers.equalTo(0x7c & 0x1f));
+        final var authTemplate = ASN1ApplicationSpecific.getInstance(responseData);
+        assertThat(authTemplate.getApplicationTag(), Matchers.equalTo(0x1c));
         System.out.println(ASN1Dump.dumpAsString(authTemplate));
 
         final var authObject = ASN1TaggedObject.getInstance(authTemplate.getContents());
-        assertThat(authObject.getTagNo(), Matchers.equalTo(0x80 & 0x1f));
-        assertThat(authObject.isExplicit(), Matchers.equalTo(false));
+        assertThat(authObject.getTagNo(), Matchers.equalTo(0x00));
 
         final var z = ASN1OctetString.getInstance(authObject.getObject()).getOctets();
         assertThat(z, Matchers.equalTo(Hex.decode("95 A3 A0 16 52 2E E9 8D 01 E7 6C B6 B9 8B 42 C3")));
@@ -219,7 +227,7 @@ public class AppTest {
 
         // note: Terminal public key = G' * t
         final var commandData = new DLApplicationSpecific(0x1c,
-                new DLTaggedObject(
+                new DERTaggedObject(
                         false,
                         0x03,
                         new DEROctetString(Gmapped.multiply(t_spec.getD()).normalize().getEncoded(false))
@@ -251,5 +259,56 @@ public class AppTest {
         final var K_mac = KDF(K, new byte[]{0x00, 0x00, 0x00, 0x02});
 
         assertThat(K_mac, Matchers.equalTo(Hex.decode("FE251C78 58B356B2 4514B3BD 5F4297D1")));
+    }
+
+    private byte[] calculateToken(final byte[] publicKey, final ASN1ObjectIdentifier protocol, final byte[] Kmac) throws IOException {
+
+        final var v = new ASN1EncodableVector();
+        v.add(protocol);
+        v.add(new DERTaggedObject(
+                false,
+                0x06,
+                new DEROctetString(publicKey)
+        ));
+
+        final var inputData = new DERApplicationSpecific(0x49, v).getEncoded();
+
+        final var aes = new AESEngine();
+        final var mac = new CMac(aes);
+        final var buffer = new byte[mac.getMacSize()];
+        mac.init(new KeyParameter(Kmac));
+        mac.update(inputData, 0, inputData.length);
+        mac.doFinal(buffer, 0);
+        return Arrays.copyOf(buffer, 8);
+    }
+
+    @Test
+    public void testMutualAuthentication() throws Exception {
+
+        // Chip's public key C
+        final var C_data = Hex.decode("049E88 0F842905 B8B3181F 7AF7CAA9 F0EFB743 847F44A3 06D2D28C 1D9EC65D F6DB7764 B22277A2 EDDC3C26 5A9F018F 9CB852E1 11B768B3 26904B59 A0193776 F094");
+        final var protocol = new ASN1ObjectIdentifier("0.4.0.127.0.7.2.2.4.2.2");
+        final var Kmac = Hex.decode("FE251C78 58B356B2 4514B3BD 5F4297D1");
+        final var Td = calculateToken(C_data, protocol, Kmac);
+
+        assertThat(Td, Matchers.equalTo(Hex.decode("C2B0BD78 D94BA866")));
+
+        final var commandData = new DLApplicationSpecific(0x1c,
+                new DERTaggedObject(
+                        false,
+                        0x05,
+                        new DEROctetString(Td)
+                )
+        );
+
+        assertThat(commandData.getEncoded(), Matchers.equalTo(Hex.decode("7C 0A 85 08 C2 B0 BD 78 D9 4B A8 66")));
+
+        final var responseData = Hex.decode("7C0A86083ABB9674BCE93C08");
+
+        final var authTemplate = ASN1ApplicationSpecific.getInstance(responseData);
+        assertThat(authTemplate.getApplicationTag(), Matchers.equalTo(0x1c));
+
+        final var authObject = ASN1TaggedObject.getInstance(authTemplate.getContents());
+        assertThat(authObject.getTagNo(), Matchers.equalTo(0x06));
     }
 }
