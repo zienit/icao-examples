@@ -2,34 +2,24 @@ package nl.logius.digid;
 
 import org.bouncycastle.asn1.*;
 import org.bouncycastle.asn1.util.ASN1Dump;
-import org.bouncycastle.asn1.x9.X9ECParameters;
 import org.bouncycastle.crypto.BufferedBlockCipher;
 import org.bouncycastle.crypto.InvalidCipherTextException;
-import org.bouncycastle.crypto.agreement.ECDHBasicAgreement;
 import org.bouncycastle.crypto.digests.SHA1Digest;
 import org.bouncycastle.crypto.engines.AESEngine;
 import org.bouncycastle.crypto.generators.ECKeyPairGenerator;
 import org.bouncycastle.crypto.macs.CMac;
 import org.bouncycastle.crypto.modes.CBCBlockCipher;
-import org.bouncycastle.crypto.params.ECDomainParameters;
-import org.bouncycastle.crypto.params.ECKeyGenerationParameters;
-import org.bouncycastle.crypto.params.KeyParameter;
+import org.bouncycastle.crypto.params.*;
 import org.bouncycastle.jce.ECNamedCurveTable;
-import org.bouncycastle.jce.spec.ECPrivateKeySpec;
-import org.bouncycastle.jce.spec.ECPublicKeySpec;
 import org.bouncycastle.util.encoders.Hex;
 import org.hamcrest.Matchers;
 import org.junit.Before;
 import org.junit.Test;
 
-import javax.crypto.KeyAgreement;
 import java.io.IOException;
 import java.math.BigInteger;
-import java.security.KeyPairGenerator;
 import java.security.SecureRandom;
 import java.security.Security;
-import java.security.spec.AlgorithmParameterSpec;
-import java.security.spec.ECGenParameterSpec;
 import java.util.Arrays;
 import java.util.stream.Stream;
 
@@ -47,14 +37,10 @@ import static org.junit.Assert.assertThat;
  * <p>
  * The tests focus on the cryptography and on the construction of command- and responseData.
  * The enveloping APDUs are ignored because of their trivial nature.
+ * <p>
+ * Note that the worked example uses protocol id_PACE_DH_GM_AES_CBC_CMAC_128
  */
 public class AppTest {
-
-    @Before
-    public void setup() {
-        Security.addProvider(new org.bouncycastle.jce.provider.BouncyCastleProvider());
-        Security.setProperty("crypto.policy", "unlimited");
-    }
 
     @Test
     public void testParseCardAccess() {
@@ -80,7 +66,7 @@ public class AppTest {
         assertThat(parameterId.intValueExact(), Matchers.equalTo(13));
     }
 
-    // KDF hardwired for cipher = AES and keylength = 128, as applicable to the ICAO PACE Worked Example
+    // KDF(K,c) hardwired for cipher = AES and keylength = 128, as applicable to the ICAO PACE Worked Example
     private byte[] KDF(byte[] K, byte[] c) {
 
         final var sha1 = new SHA1Digest();
@@ -119,7 +105,6 @@ public class AppTest {
 
         final var authTemplate = ASN1ApplicationSpecific.getInstance(responseData);
         assertThat(authTemplate.getApplicationTag(), Matchers.equalTo(0x1c));
-        System.out.println(ASN1Dump.dumpAsString(authTemplate));
 
         final var authObject = ASN1TaggedObject.getInstance(authTemplate.getContents());
         assertThat(authObject.getTagNo(), Matchers.equalTo(0x00));
@@ -136,36 +121,6 @@ public class AppTest {
     }
 
     @Test
-    public void testGenKeyPairECDHSharedSecret() throws Exception {
-
-        final AlgorithmParameterSpec spec = new ECGenParameterSpec("BrainpoolP256r1");
-        final var gen = KeyPairGenerator.getInstance("ECDH", "BC");
-        gen.initialize(spec, new SecureRandom());
-        final var digid = gen.generateKeyPair();
-        final var chip = gen.generateKeyPair();
-
-        final var ecdh = KeyAgreement.getInstance("ECDH", "BC");
-        ecdh.init(digid.getPrivate());
-        ecdh.doPhase(chip.getPublic(), true);
-        final var a = ecdh.generateSecret();
-
-        ecdh.init(chip.getPrivate());
-        ecdh.doPhase(digid.getPublic(), true);
-        final var b = ecdh.generateSecret();
-
-        assertThat(a, Matchers.equalTo(b));
-
-        final var gen2 = new ECKeyPairGenerator();
-        X9ECParameters brainpoolP256r1 = org.bouncycastle.asn1.x9.ECNamedCurveTable.getByName("BrainpoolP256r1");
-        final var domainParms = new ECDomainParameters(brainpoolP256r1.getCurve(), brainpoolP256r1.getG(), brainpoolP256r1.getN(), brainpoolP256r1.getH(), brainpoolP256r1.getSeed());
-        gen2.init(new ECKeyGenerationParameters(domainParms, new SecureRandom()));
-        final var digid2 = gen2.generateKeyPair();
-        System.out.println(digid2.getPublic());
-        final var ecdh2 = new ECDHBasicAgreement();
-
-    }
-
-    @Test
     public void testMapNonce() throws Exception {
 
         // nonce s
@@ -177,14 +132,14 @@ public class AppTest {
         final var params = ECNamedCurveTable.getParameterSpec("BrainpoolP256r1");
         final var G = params.getG();
 
-        final var t_spec = new ECPrivateKeySpec(new BigInteger(1, t_data), params);
+        final var t = new BigInteger(1, t_data);
 
         // note: Terminal public key = G * t
-        final var commandData = new DLApplicationSpecific(0x1c,
-                new DLTaggedObject(
+        final var commandData = new DERApplicationSpecific(0x1c,
+                new DERTaggedObject(
                         false,
                         0x01,
-                        new DEROctetString(G.multiply(t_spec.getD()).getEncoded(false))
+                        new DEROctetString(G.multiply(t).getEncoded(false))
                 )
         );
 
@@ -200,10 +155,10 @@ public class AppTest {
 
         // Chip's public key C
         final var C_data = ASN1OctetString.getInstance(authObject.getObject()).getOctets();
-        final var C_spec = new ECPublicKeySpec(params.getCurve().decodePoint(C_data), params);
+        final var C = params.getCurve().decodePoint(C_data);
 
         // H := C * t
-        final var H = C_spec.getQ().multiply(t_spec.getD());
+        final var H = C.multiply(t);
 
         assertThat(H.getEncoded(false), Matchers.equalTo(Hex.decode("04 60332EF2 450B5D24 7EF6D386 8397D398 852ED6E8 CAF6FFEE F6BF85CA 57057FD5 0840CA74 15BAF3E4 3BD414D3 5AA4608B 93A2CAF3 A4E3EA4E 82C9C13D 03EB7181")));
 
@@ -211,6 +166,31 @@ public class AppTest {
         final var Gmapped = G.multiply(s).add(H).normalize();
 
         assertThat(Gmapped.getEncoded(false), Matchers.equalTo(Hex.decode("04 8CED63C9 1426D4F0 EB1435E7 CB1D74A4 6723A0AF 21C89634 F65A9AE8 7A9265E2 8C879506 743F8611 AC33645C 5B985C80 B5F09A0B 83407C1B 6A4D857A E76FE522")));
+    }
+
+    /**
+     * A deviation from the ICAO worked example, but needed in a real implementation of PACE:
+     * Generate a random ephemeral EC keypair (P,p).
+     */
+    @Test
+    public void testGenKeyPairECDHSharedSecret() throws Exception {
+
+        final var gen = new ECKeyPairGenerator();
+        final var brainpoolP256r1 = ECNamedCurveTable.getParameterSpec("BrainpoolP256r1");
+        final var domain = new ECDomainParameters(
+                brainpoolP256r1.getCurve(),
+                brainpoolP256r1.getG(),
+                brainpoolP256r1.getN(),
+                brainpoolP256r1.getH(),
+                brainpoolP256r1.getSeed()
+        );
+        gen.init(new ECKeyGenerationParameters(domain, new SecureRandom()));
+        final var keyPair = gen.generateKeyPair();
+        final var P = ((ECPublicKeyParameters) keyPair.getPublic()).getQ();
+        final var p = ((ECPrivateKeyParameters) keyPair.getPrivate()).getD();
+
+        // this MUST always hold: P = p * G
+        assertThat(brainpoolP256r1.getG().multiply(p).normalize(), Matchers.equalTo(P));
     }
 
     @Test
@@ -221,16 +201,15 @@ public class AppTest {
 
         final var params = ECNamedCurveTable.getParameterSpec("BrainpoolP256r1");
         final var Gmapped = params.getCurve().decodePoint(Hex.decode("04 8CED63C9 1426D4F0 EB1435E7 CB1D74A4 6723A0AF 21C89634 F65A9AE8 7A9265E2 8C879506 743F8611 AC33645C 5B985C80 B5F09A0B 83407C1B 6A4D857A E76FE522"));
-//        final var paramsMapped = new ECDomainParameters(params.getCurve(), Gmapped, params.getN(), params.getH(), params.getSeed());
 
-        final var t_spec = new ECPrivateKeySpec(new BigInteger(1, t_data), params);
+        final var t = new BigInteger(1, t_data);
 
         // note: Terminal public key = G' * t
-        final var commandData = new DLApplicationSpecific(0x1c,
+        final var commandData = new DERApplicationSpecific(0x1c,
                 new DERTaggedObject(
                         false,
                         0x03,
-                        new DEROctetString(Gmapped.multiply(t_spec.getD()).normalize().getEncoded(false))
+                        new DEROctetString(Gmapped.multiply(t).normalize().getEncoded(false))
                 )
         );
 
@@ -246,9 +225,9 @@ public class AppTest {
 
         // Chip's public key C
         final var C_data = ASN1OctetString.getInstance(authObject.getObject()).getOctets();
-        final var C_spec = new ECPublicKeySpec(params.getCurve().decodePoint(C_data), params);
+        final var C = params.getCurve().decodePoint(C_data);
 
-        final var K = C_spec.getQ().multiply(t_spec.getD()).normalize().getXCoord().getEncoded();
+        final var K = C.multiply(t).normalize().getXCoord().getEncoded();
 
         assertThat(K, Matchers.equalTo(Hex.decode("28768D20 701247DA E81804C9 E780EDE5 82A9996D B4A31502 0B273319 7DB84925")));
 
@@ -310,5 +289,13 @@ public class AppTest {
 
         final var authObject = ASN1TaggedObject.getInstance(authTemplate.getContents());
         assertThat(authObject.getTagNo(), Matchers.equalTo(0x06));
+
+        final var Tc = ASN1OctetString.getInstance(authObject.getObject()).getOctets();
+        assertThat(Tc, Matchers.equalTo(Hex.decode("3ABB9674 BCE93C08")));
+
+        // Terminals' public key T
+        final var T_data = Hex.decode("042DB7 A64C0355 044EC9DF 190514C6 25CBA2CE A4875488 7122F3A5 EF0D5EDD 301C3556 F3B3B186 DF10B857 B58F6A7E B80F20BA 5DC7BE1D 43D9BF85 0149FBB3 6462");
+        final var Tc_verify = calculateToken(T_data, protocol, Kmac);
+        assertThat(Tc, Matchers.equalTo(Tc_verify)); // terminal and chip calculated the same value for Tc
     }
 }
