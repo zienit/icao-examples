@@ -139,7 +139,7 @@ public class AppTest {
                 new DERTaggedObject(
                         false,
                         0x01,
-                        new DEROctetString(G.multiply(t).getEncoded(false))
+                        new DEROctetString(G.multiply(t).normalize().getEncoded(false))
                 )
         );
 
@@ -158,11 +158,13 @@ public class AppTest {
         final var C = params.getCurve().decodePoint(C_data);
 
         // H := C * t
-        final var H = C.multiply(t);
+        final var H = C.multiply(t).normalize();
 
         assertThat(H.getEncoded(false), Matchers.equalTo(Hex.decode("04 60332EF2 450B5D24 7EF6D386 8397D398 852ED6E8 CAF6FFEE F6BF85CA 57057FD5 0840CA74 15BAF3E4 3BD414D3 5AA4608B 93A2CAF3 A4E3EA4E 82C9C13D 03EB7181")));
 
         // G' := G * s + H
+        // important note: normalize() maps the point to affine coordinates. To speed up calculations, projected coordinates may
+        // or may not have been used instead.
         final var Gmapped = G.multiply(s).add(H).normalize();
 
         assertThat(Gmapped.getEncoded(false), Matchers.equalTo(Hex.decode("04 8CED63C9 1426D4F0 EB1435E7 CB1D74A4 6723A0AF 21C89634 F65A9AE8 7A9265E2 8C879506 743F8611 AC33645C 5B985C80 B5F09A0B 83407C1B 6A4D857A E76FE522")));
