@@ -37,7 +37,7 @@ import static org.junit.Assert.assertThat;
  * <p>
  * Note that the worked example uses protocol id_PACE_DH_GM_AES_CBC_CMAC_128
  */
-public class AppTest {
+public class PACETest {
 
     @Test
     public void testParseCardAccess() {
