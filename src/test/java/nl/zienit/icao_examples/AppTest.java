@@ -1,7 +1,6 @@
-package nl.logius.digid;
+package nl.zienit.icao_examples;
 
 import org.bouncycastle.asn1.*;
-import org.bouncycastle.asn1.util.ASN1Dump;
 import org.bouncycastle.crypto.BufferedBlockCipher;
 import org.bouncycastle.crypto.InvalidCipherTextException;
 import org.bouncycastle.crypto.digests.SHA1Digest;
@@ -13,13 +12,11 @@ import org.bouncycastle.crypto.params.*;
 import org.bouncycastle.jce.ECNamedCurveTable;
 import org.bouncycastle.util.encoders.Hex;
 import org.hamcrest.Matchers;
-import org.junit.Before;
 import org.junit.Test;
 
 import java.io.IOException;
 import java.math.BigInteger;
 import java.security.SecureRandom;
-import java.security.Security;
 import java.util.Arrays;
 import java.util.stream.Stream;
 
@@ -175,7 +172,7 @@ public class AppTest {
      * Generate a random ephemeral EC keypair (P,p).
      */
     @Test
-    public void testGenKeyPairECDHSharedSecret() throws Exception {
+    public void testGenKeyPair() {
 
         final var gen = new ECKeyPairGenerator();
         final var brainpoolP256r1 = ECNamedCurveTable.getParameterSpec("BrainpoolP256r1");

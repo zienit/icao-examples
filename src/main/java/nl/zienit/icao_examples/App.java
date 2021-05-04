@@ -1,4 +1,4 @@
-package nl.logius.digid;
+package nl.zienit.icao_examples;
 
 public class App {
     public static void main(String[] args) {
