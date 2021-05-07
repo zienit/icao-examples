@@ -23,7 +23,7 @@ import java.util.stream.Stream;
 import static org.junit.Assert.assertThat;
 
 /**
- * Unit test demonstrating:
+ * Unit tests demonstrating:
  * ICAO
  * Doc 9303
  * Machine Readable Travel Documents

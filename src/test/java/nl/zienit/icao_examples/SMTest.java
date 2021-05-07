@@ -18,6 +18,17 @@ import java.util.function.Function;
 
 import static org.junit.Assert.assertThat;
 
+/**
+ * Unit tests demonstrating:
+ * ICAO
+ * Doc 9303
+ * Machine Readable Travel Documents
+ * Seventh Edition, 2015
+ * Part 11: Security Mechanisms for MRTDs
+ * WORKED EXAMPLE: BASIC ACCESS CONTROL
+ * Note that the focus is on SECURE MESSAGING. Secure messaging differs after being established with either BAC or PACE
+ * only in the cryptographic primitives chosen for Enc() and Mac() .
+ */
 public class SMTest {
 
     private final byte[] K_enc = Hex.decode("979EC13B1CBFE9DCD01AB0FED307EAE5");
