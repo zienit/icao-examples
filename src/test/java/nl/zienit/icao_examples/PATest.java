@@ -1,10 +1,7 @@
 package nl.zienit.icao_examples;
 
 import net.sf.scuba.tlv.TLVInputStream;
-import org.bouncycastle.asn1.ASN1ApplicationSpecific;
-import org.bouncycastle.asn1.ASN1InputStream;
 import org.bouncycastle.asn1.ASN1OctetString;
-import org.bouncycastle.asn1.ASN1Primitive;
 import org.bouncycastle.asn1.cms.CMSObjectIdentifiers;
 import org.bouncycastle.asn1.cms.ContentInfo;
 import org.bouncycastle.asn1.cms.SignedData;
@@ -16,31 +13,30 @@ import org.bouncycastle.cms.jcajce.JcaSimpleSignerInfoVerifierBuilder;
 import org.bouncycastle.jcajce.provider.util.DigestFactory;
 import org.bouncycastle.util.encoders.Hex;
 import org.junit.Test;
-import org.w3c.dom.ls.LSOutput;
 
 import java.io.ByteArrayInputStream;
 import java.io.FileInputStream;
 import java.util.Formatter;
 
-import static org.hamcrest.Matchers.*;
+import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.greaterThan;
 import static org.junit.Assert.assertThat;
 
-// note: there is a (slight) difference between BER-TLV, as defined in ISO/IEC 7816
-// for SmartCards, and BER as defined in X.690. In version 1.70 of BC, this difference
-// leads to an exception being thrown when parsing Ef.COM. For this reason, two different
+// note: there are some differences between BER-TLV, as defined in ISO/IEC 7816
+// for SmartCards, and BER as defined in X.690. In version 1.70 of BC, these differences
+// lead to an exception being thrown when parsing Ef.COM. For this reason, two different
 // libraries are used. See also this discussion: https://github.com/bcgit/bc-java/issues/1081
 public class PATest {
 
     @Test
+    // ICAO 9303 Part 10, section 4.6.2 Document Security Object EF.SOD
     public void testReadSOD() throws Exception {
         try (final var fis = new FileInputStream(System.getProperty("user.home") + "/Documents/passive_auth/efSod");
-             final var ais = new ASN1InputStream(fis)
+             final var sod = new TLVInputStream(fis)
         ) {
-            final var object = ais.readObject();
-            assertThat(object, instanceOf(ASN1ApplicationSpecific.class));
-            final var sod = (ASN1ApplicationSpecific) object;
-            assertThat(sod.getApplicationTag(), equalTo(0x77 & 0x1f));
-            final var ci = ContentInfo.getInstance(sod.getContents());
+            assertThat(sod.readTag(), equalTo(0x77));
+            sod.readLength();
+            final var ci = ContentInfo.getInstance(sod.readValue());
             assertThat(ci.getContentType(), equalTo(CMSObjectIdentifiers.signedData));
             final var sd = SignedData.getInstance(ci.getContent());
 
@@ -91,6 +87,7 @@ public class PATest {
 
     @Test
     // ICAO 9303 Part 10, section 4.6.1 Header and Data Group Presence Information EF.COM
+    // Note: this Elementary File's hash is not included in EF.SOD (so not relevant to PA)
     public void testReadCOM() throws Exception {
 
         try (final var fis = new FileInputStream(System.getProperty("user.home") + "/Documents/passive_auth/efCom");
@@ -99,8 +96,8 @@ public class PATest {
             assertThat(com.readTag(), equalTo(0x60));
             com.readLength();
             try (
-                    final var bis = new ByteArrayInputStream(com.readValue());
-                    final var elements = new TLVInputStream(bis)) {
+                    final var bais = new ByteArrayInputStream(com.readValue());
+                    final var elements = new TLVInputStream(bais)) {
 
                 assertThat(elements.readTag(), equalTo(0x5f01));
                 elements.readLength();
@@ -125,38 +122,35 @@ public class PATest {
     }
 
     @Test
+    // ICAO 9303 Part 10, section 4.7.1 DATA GROUP 1 — Machine Readable Zone Information
     public void testReadDG1() throws Exception {
 
-        // read from EF.SOD
+        // pre-condition: read from EF.SOD
         final var digestAlgorithmIdentifier = "2.16.840.1.101.3.4.2.1";
-        final var dg1HashValue = Hex.decode("7ce3ad4a334529bc7870039d5d5c4d77d9061782181e2c1eabb7e3c18f7cdfaa");
+        final var hashValue = Hex.decode("7ce3ad4a334529bc7870039d5d5c4d77d9061782181e2c1eabb7e3c18f7cdfaa");
 
-        try (final var fis = new FileInputStream(System.getProperty("user.home") + "/Documents/passive_auth/dg01");
-             final var ais = new ASN1InputStream(fis)
-        ) {
-            final var object = ais.readObject();
+        try (final var fis = new FileInputStream(System.getProperty("user.home") + "/Documents/passive_auth/dg01")) {
 
             // hash must be equal to hash listed in EF.SOD
+            final var contents = fis.readAllBytes();
             final var digestAlgorithm = DigestFactory.getDigest(digestAlgorithmIdentifier);
-            digestAlgorithm.update(object.getEncoded(), 0, object.getEncoded().length);
+            digestAlgorithm.update(contents, 0, contents.length);
             final var digest = new byte[digestAlgorithm.getDigestSize()];
             digestAlgorithm.doFinal(digest, 0);
-            assertThat(digest, equalTo(dg1HashValue));
+            assertThat(digest, equalTo(hashValue));
 
-            assertThat(object, instanceOf(ASN1ApplicationSpecific.class));
-            final var dg1 = (ASN1ApplicationSpecific) object;
-            assertThat(dg1.getApplicationTag(), equalTo(0x61 & 0x1f));
+            try (final var dg1 = new TLVInputStream(new ByteArrayInputStream(contents))) {
 
-            // tag = 5F1F, first octet (bin: 01011111) indicates high-tag-number form (bit 5 - 1 all ones).
-            // second octet (bin: 00011111) indicates last octet of tag number (bit 8 zero).
-            final var enclosedObject = ASN1Primitive.fromByteArray(dg1.getContents());
+                assertThat(dg1.readTag(), equalTo(0x61));
+                dg1.readLength();
 
-            assertThat(enclosedObject, instanceOf(ASN1ApplicationSpecific.class));
-            final var dataElements = (ASN1ApplicationSpecific) enclosedObject;
+                try (final var elements = new TLVInputStream(new ByteArrayInputStream(dg1.readValue()))) {
 
-            assertThat(dataElements.getApplicationTag(), equalTo(0x1f));
-
-            System.out.println(new String(dataElements.getContents()));
+                    assertThat(elements.readTag(), equalTo(0x5f1f));
+                    elements.readLength();
+                    System.out.println(new String(elements.readValue()));
+                }
+            }
         }
     }
 }
