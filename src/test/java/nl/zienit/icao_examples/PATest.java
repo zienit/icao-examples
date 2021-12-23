@@ -14,11 +14,15 @@ import org.bouncycastle.cert.X509CertificateHolder;
 import org.bouncycastle.cms.CMSSignedData;
 import org.bouncycastle.cms.jcajce.JcaSimpleSignerInfoVerifierBuilder;
 import org.bouncycastle.jcajce.provider.util.DigestFactory;
+import org.bouncycastle.jce.provider.BouncyCastleProvider;
+import org.bouncycastle.operator.jcajce.JcaContentVerifierProviderBuilder;
 import org.bouncycastle.util.encoders.Hex;
+import org.junit.BeforeClass;
 import org.junit.Test;
 
 import java.io.ByteArrayInputStream;
 import java.io.FileInputStream;
+import java.security.Security;
 import java.util.Formatter;
 import java.util.Set;
 
@@ -46,6 +50,11 @@ public class PATest {
 
     // ICAO 9303 part 11, section 9.2.9 Terminal Authentication Object Identifiers
     static final ASN1ObjectIdentifier id_TA = BSIObjectIdentifiers.bsi_de.branch("2.2.2");
+
+    @BeforeClass
+    public static void beforeClass() {
+        Security.addProvider(new BouncyCastleProvider());
+    }
 
     @Test
     // ICAO 9303 Part 10, section 4.6.2 Document Security Object EF.SOD
@@ -249,8 +258,41 @@ public class PATest {
                     // other protocols or providing other information. The inspection system MAY discard any unknown entry.
                 }
             }
+        }
+    }
 
+    // ICAO 9303 Part 10, section 4.7.15 DATA GROUP 15 — Active Authentication Public Key Info
+    @Test
+    public void testReadDG15() throws Exception {
 
+        // pre-condition: read from EF.SOD
+        final var digestAlgorithmIdentifier = "2.16.840.1.101.3.4.2.1";
+        final var hashValue = Hex.decode("0ecec022c144e9ecb89d1daa60be4df0f1a5c6f83097fd6425216e7124b0eac6");
+
+        try (final var fis = new FileInputStream(System.getProperty("user.home") + "/Documents/passive_auth/dg15")) {
+
+            // hash must be equal to hash listed in EF.SOD
+            final var contents = fis.readAllBytes();
+            final var digestAlgorithm = DigestFactory.getDigest(digestAlgorithmIdentifier);
+            digestAlgorithm.update(contents, 0, contents.length);
+            final var digest = new byte[digestAlgorithm.getDigestSize()];
+            digestAlgorithm.doFinal(digest, 0);
+            assertThat(digest, equalTo(hashValue));
+
+            try (final var dg15 = new TLVInputStream(new ByteArrayInputStream(contents))) {
+
+                assertThat(dg15.readTag(), equalTo(0x6F));
+                dg15.readLength();
+
+                final var activeAuthenticationPublicKey = SubjectPublicKeyInfo.getInstance(dg15.readValue());
+                new Formatter(System.out).format("ActiveAuthenticationPublicKey %s %.40s...\n",
+                        activeAuthenticationPublicKey.getAlgorithm().getAlgorithm(),
+                        activeAuthenticationPublicKey.getPublicKeyData()
+                );
+
+                // Exception is thrown if BC does not support this algorithm
+                new JcaContentVerifierProviderBuilder().setProvider("BC").build(activeAuthenticationPublicKey);
+            }
         }
     }
 }

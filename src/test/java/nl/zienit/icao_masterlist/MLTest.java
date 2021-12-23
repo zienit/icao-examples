@@ -59,7 +59,7 @@ public class MLTest {
 
         // signature of self-signed CSCA certificate valid?
         final var isSignatureValid = cscaCertHolder.isSignatureValid(
-                new JcaContentVerifierProviderBuilder().build(cscaCertHolder)
+                new JcaContentVerifierProviderBuilder().setProvider("BC").build(cscaCertHolder)
         );
         assertThat(isSignatureValid, equalTo(true));
 
@@ -106,7 +106,7 @@ public class MLTest {
         final var masterListSignerCert = (X509CertificateHolder) matches.iterator().next();
 
         // verify the signerInfo against the public key in the MasterListSigner certificate
-        final var isSignerInfoVerified = signerInfo.verify(new JcaSimpleSignerInfoVerifierBuilder().build(masterListSignerCert));
+        final var isSignerInfoVerified = signerInfo.verify(new JcaSimpleSignerInfoVerifierBuilder().setProvider("BC").build(masterListSignerCert));
         assertThat(isSignerInfoVerified, equalTo(true));
 
         // note: the NL CSCA Certificate, to be used to validate the signature of the MasterListSigner Certificate,
@@ -252,7 +252,7 @@ public class MLTest {
         final var coCSCACert = fetchCSCACertificate("CO", AuthorityKeyIdentifier.fromExtensions(extensions).getKeyIdentifier());
 
         final var crlHolder = new X509CRLHolder(cl);
-        final var isSignatureValid = crlHolder.isSignatureValid(new JcaContentVerifierProviderBuilder().build(coCSCACert.getSubjectPublicKeyInfo()));
+        final var isSignatureValid = crlHolder.isSignatureValid(new JcaContentVerifierProviderBuilder().setProvider("BC").build(coCSCACert.getSubjectPublicKeyInfo()));
         assertThat(isSignatureValid, equalTo(true));
 
         final var entries = tbsCl.getRevokedCertificates();
