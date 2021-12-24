@@ -88,7 +88,6 @@ public class SMTest {
 
     private byte[] mac3DESCBC(byte[] key, byte[] message) {
         final var cipher = new DESEngine();
-//        final var mac = new ISO9797Alg3Mac(cipher, new ISO7816d4Padding());
         final var mac = new ISO9797Alg3Mac(cipher);
         final var buffer = new byte[mac.getMacSize()];
         mac.init(new DESedeParameters(key));
