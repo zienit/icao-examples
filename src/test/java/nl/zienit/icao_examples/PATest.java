@@ -21,7 +21,6 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 
 import java.io.ByteArrayInputStream;
-import java.io.FileInputStream;
 import java.security.Security;
 import java.util.Formatter;
 import java.util.Set;
@@ -30,6 +29,8 @@ import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.greaterThan;
 import static org.junit.Assert.assertThat;
 
+// Resources used are published by BSI at the following url:
+// https://www.bsi.bund.de/SharedDocs/Downloads/DE/BSI/Publikationen/TechnischeRichtlinien/TR03105/BSI_TR-03105-5_ReferenceDataSet_zip
 // note: there are some differences between BER-TLV, as defined in ISO/IEC 7816
 // for SmartCards, and BER as defined in X.690. In version 1.70 of BC, these differences
 // lead to an exception being thrown when parsing Ef.COM. For this reason, two different
@@ -59,7 +60,7 @@ public class PATest {
     @Test
     // ICAO 9303 Part 10, section 4.6.2 Document Security Object EF.SOD
     public void testReadSOD() throws Exception {
-        try (final var fis = new FileInputStream(System.getProperty("user.home") + "/Documents/passive_auth/efSod");
+        try (final var fis = getClass().getClassLoader().getResourceAsStream("EF_SOD.bin");
              final var sod = new TLVInputStream(fis)
         ) {
             assertThat(sod.readTag(), equalTo(0x77));
@@ -118,7 +119,7 @@ public class PATest {
     // Note: this Elementary File's hash is not included in EF.SOD (so not relevant to PA)
     public void testReadCOM() throws Exception {
 
-        try (final var fis = new FileInputStream(System.getProperty("user.home") + "/Documents/passive_auth/efCom");
+        try (final var fis = getClass().getClassLoader().getResourceAsStream("EF_COM.bin");
              final var com = new TLVInputStream(fis)
         ) {
             assertThat(com.readTag(), equalTo(0x60));
@@ -142,7 +143,7 @@ public class PATest {
                 new Formatter(System.out).format(
                         "LDS Version number (aabb)      : %s\n" +
                                 "Unicode Version number (aabbcc): %s\n" +
-                                "List of all Data Groups present: %s",
+                                "List of all Data Groups present: %s\n",
                         new String(ldsVersion), new String(ucVersion), Hex.toHexString(dataGroups)
                 );
             }
@@ -155,9 +156,9 @@ public class PATest {
 
         // pre-condition: read from EF.SOD
         final var digestAlgorithmIdentifier = "2.16.840.1.101.3.4.2.1";
-        final var hashValue = Hex.decode("7ce3ad4a334529bc7870039d5d5c4d77d9061782181e2c1eabb7e3c18f7cdfaa");
+        final var hashValue = Hex.decode("4170ca879fce6a22ffef1567ff88079f415c66ead250ab5f23781ac2cdbf42b6");
 
-        try (final var fis = new FileInputStream(System.getProperty("user.home") + "/Documents/passive_auth/dg01")) {
+        try (final var fis = getClass().getClassLoader().getResourceAsStream("Datagroup1.bin")) {
 
             // hash must be equal to hash listed in EF.SOD
             final var contents = fis.readAllBytes();
@@ -188,9 +189,9 @@ public class PATest {
 
         // pre-condition: read from EF.SOD
         final var digestAlgorithmIdentifier = "2.16.840.1.101.3.4.2.1";
-        final var hashValue = Hex.decode("a7d6f535b1c2b2f466f167d3092e39e5b8b557a4beea463500844063d2d08497");
+        final var hashValue = Hex.decode("cf5004ffccd64e1a8bd3a42fd53814ec3d4481640be1906d0ecfeb016ef6a6ae");
 
-        try (final var fis = new FileInputStream(System.getProperty("user.home") + "/Documents/passive_auth/dg14")) {
+        try (final var fis = getClass().getClassLoader().getResourceAsStream("Datagroup14.bin")) {
 
             // hash must be equal to hash listed in EF.SOD
             final var contents = fis.readAllBytes();
@@ -265,34 +266,20 @@ public class PATest {
     @Test
     public void testReadDG15() throws Exception {
 
-        // pre-condition: read from EF.SOD
-        final var digestAlgorithmIdentifier = "2.16.840.1.101.3.4.2.1";
-        final var hashValue = Hex.decode("0ecec022c144e9ecb89d1daa60be4df0f1a5c6f83097fd6425216e7124b0eac6");
+        try (final var fis = getClass().getClassLoader().getResourceAsStream("Datagroup15.bin");
+             final var dg15 = new TLVInputStream(fis)) {
 
-        try (final var fis = new FileInputStream(System.getProperty("user.home") + "/Documents/passive_auth/dg15")) {
+            assertThat(dg15.readTag(), equalTo(0x6F));
+            dg15.readLength();
 
-            // hash must be equal to hash listed in EF.SOD
-            final var contents = fis.readAllBytes();
-            final var digestAlgorithm = DigestFactory.getDigest(digestAlgorithmIdentifier);
-            digestAlgorithm.update(contents, 0, contents.length);
-            final var digest = new byte[digestAlgorithm.getDigestSize()];
-            digestAlgorithm.doFinal(digest, 0);
-            assertThat(digest, equalTo(hashValue));
+            final var activeAuthenticationPublicKey = SubjectPublicKeyInfo.getInstance(dg15.readValue());
+            new Formatter(System.out).format("ActiveAuthenticationPublicKey %s %.40s...\n",
+                    activeAuthenticationPublicKey.getAlgorithm().getAlgorithm(),
+                    activeAuthenticationPublicKey.getPublicKeyData()
+            );
 
-            try (final var dg15 = new TLVInputStream(new ByteArrayInputStream(contents))) {
-
-                assertThat(dg15.readTag(), equalTo(0x6F));
-                dg15.readLength();
-
-                final var activeAuthenticationPublicKey = SubjectPublicKeyInfo.getInstance(dg15.readValue());
-                new Formatter(System.out).format("ActiveAuthenticationPublicKey %s %.40s...\n",
-                        activeAuthenticationPublicKey.getAlgorithm().getAlgorithm(),
-                        activeAuthenticationPublicKey.getPublicKeyData()
-                );
-
-                // Exception is thrown if BC does not support this algorithm
-                new JcaContentVerifierProviderBuilder().setProvider("BC").build(activeAuthenticationPublicKey);
-            }
+            // Exception is thrown if BC does not support this algorithm
+            new JcaContentVerifierProviderBuilder().setProvider("BC").build(activeAuthenticationPublicKey);
         }
     }
 }
