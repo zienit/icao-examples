@@ -39,7 +39,7 @@ import static org.junit.Assert.assertThat;
  * The enveloping APDUs are ignored because of their trivial nature.
  * <p>
  */
-public class PACE_IMTest {
+public class PACE_ECDH_IMTest {
 
     // KDF(K,c) hardwired for cipher = AES and keylength = 128, as applicable to the ICAO PACE Worked Example
     private byte[] KDF(byte[] K, byte[] c) {
