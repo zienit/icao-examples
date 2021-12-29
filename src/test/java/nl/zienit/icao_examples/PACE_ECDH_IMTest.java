@@ -73,7 +73,7 @@ public class PACE_ECDH_IMTest {
     }
 
     // ICAO 9303 Part 11, section 4.4.3.3.2 Integrated Mapping: Pseudo-random Number Mapping
-    public byte[] R(byte[] s, byte[] t, BlockCipher bc, int k, int p_log2) throws InvalidCipherTextException, IOException {
+    private byte[] R(byte[] s, byte[] t, BlockCipher bc, int k, int p_log2) throws InvalidCipherTextException, IOException {
 
         // l := bit length of s (note: c0, c1 and the output of R_block() have length l)
         final var l = s.length * 8;
