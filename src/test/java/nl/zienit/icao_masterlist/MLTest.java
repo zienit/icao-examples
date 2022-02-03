@@ -16,6 +16,7 @@ import org.bouncycastle.cms.CMSSignedData;
 import org.bouncycastle.cms.jcajce.JcaSimpleSignerInfoVerifierBuilder;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.bouncycastle.operator.jcajce.JcaContentVerifierProviderBuilder;
+import org.bouncycastle.util.encoders.Hex;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
@@ -74,6 +75,16 @@ public class MLTest {
         ) {
             return ContentInfo.getInstance(ais.readObject());
         }
+    }
+
+    // contents of pem certificate can be viewed with openssl:
+    // openssl x509 -in CERTIFICATE.pem -text -noout
+    private String pem(Certificate cert) throws IOException {
+
+        final Base64.Encoder encoder = Base64.getMimeEncoder(64, "\n".getBytes());
+        return "-----BEGIN CERTIFICATE-----\n"
+                + new String(encoder.encode(cert.getEncoded()))
+                + "\n-----END CERTIFICATE-----";
     }
 
     @Test
@@ -202,6 +213,17 @@ public class MLTest {
                 System.out.print(i < points.size() ? ",\"" + points.get(i) + "\"" : ",\"\"");
             }
             System.out.println();
+        }
+
+        // dump all certificates in PEM format
+        for (final var cert : cscaCerts) {
+            final var countryName = cert.getIssuer().getRDNs(X509ObjectIdentifiers.countryName)[0].getFirst().getValue();
+            final var ski = SubjectKeyIdentifier.fromExtensions(cert.getTBSCertificate().getExtensions()).getKeyIdentifier();
+            System.out.print("Country=" + countryName);
+            System.out.print(";SubjectKeyIdentifier="+ Hex.toHexString(ski));
+            System.out.print(";" + DF.format(cert.getStartDate().getDate()));
+            System.out.println(";" + DF.format(cert.getEndDate().getDate()));
+            System.out.println(pem(cert));
         }
     }
 
