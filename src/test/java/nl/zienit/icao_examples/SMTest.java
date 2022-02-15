@@ -8,6 +8,7 @@ import org.bouncycastle.crypto.engines.DESedeEngine;
 import org.bouncycastle.crypto.macs.ISO9797Alg3Mac;
 import org.bouncycastle.crypto.modes.CBCBlockCipher;
 import org.bouncycastle.crypto.params.DESedeParameters;
+import org.bouncycastle.util.BigIntegers;
 import org.bouncycastle.util.encoders.Hex;
 import org.hamcrest.Matchers;
 import org.junit.Test;
@@ -60,13 +61,7 @@ public class SMTest {
     }
 
     private byte[] ssc(BigInteger value, int blocksize) {
-        final var buffer = value.toByteArray();
-        if (buffer.length > blocksize) {
-            // Note: BigInteger.toByteArray() returns two's-complement representation: If the BigInteger is positive,
-            // and the first bit of the byte array produced is 1, a 0x00 byte is prepended. This extra byte must be
-            // dropped.
-            return Arrays.copyOfRange(buffer, buffer.length - blocksize, buffer.length);
-        }
+        final var buffer = BigIntegers.asUnsignedByteArray(blocksize, value);
         if (buffer.length < 8) {
             return concat(new byte[blocksize - buffer.length], buffer);
         }

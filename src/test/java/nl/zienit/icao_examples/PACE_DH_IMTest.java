@@ -10,18 +10,16 @@ import org.bouncycastle.crypto.BufferedBlockCipher;
 import org.bouncycastle.crypto.InvalidCipherTextException;
 import org.bouncycastle.crypto.digests.SHA1Digest;
 import org.bouncycastle.crypto.engines.AESEngine;
-import org.bouncycastle.crypto.generators.DHKeyPairGenerator;
 import org.bouncycastle.crypto.macs.CMac;
 import org.bouncycastle.crypto.modes.CBCBlockCipher;
-import org.bouncycastle.crypto.params.*;
+import org.bouncycastle.crypto.params.KeyParameter;
+import org.bouncycastle.util.BigIntegers;
 import org.bouncycastle.util.encoders.Hex;
-import org.hamcrest.Matchers;
 import org.junit.Test;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.math.BigInteger;
-import java.security.SecureRandom;
 import java.util.Arrays;
 
 import static org.hamcrest.Matchers.equalTo;
@@ -213,11 +211,7 @@ public class PACE_DH_IMTest {
                         "D379935C 771BD7FB ED6C7BB4 B1708B27" +
                         "5EA75679 524CDC9C 6A91370C C662A2F3"));
 
-        final var K_raw = C.modPow(t, p).toByteArray();
-        // Note: BigInteger.toByteArray() returns two's-complement representation: If the BigInteger is positive,
-        // and the first bit of the byte array produced is 1, a 0x00 byte is prepended. This extra byte must be
-        // dropped.
-        final var K = K_raw[0] == 0 ? Arrays.copyOfRange(K_raw, 1, K_raw.length - 1) : K_raw;
+        final var K = BigIntegers.asUnsignedByteArray(128, C.modPow(t, p));
 
         assertThat(K, equalTo(Hex.decode(
                 "419410D6 C0A17A4C 07C54872 CE1CBCEB" +

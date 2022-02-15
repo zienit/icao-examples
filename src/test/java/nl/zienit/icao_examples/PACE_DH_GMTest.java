@@ -13,6 +13,7 @@ import org.bouncycastle.crypto.generators.DHKeyPairGenerator;
 import org.bouncycastle.crypto.macs.CMac;
 import org.bouncycastle.crypto.modes.CBCBlockCipher;
 import org.bouncycastle.crypto.params.*;
+import org.bouncycastle.util.BigIntegers;
 import org.bouncycastle.util.encoders.Hex;
 import org.hamcrest.Matchers;
 import org.junit.Test;
@@ -186,11 +187,7 @@ public class PACE_DH_GMTest {
                         "386CD456 743585F8 E5D90CC8 B4004B1F" +
                         "6D866C79 CE0584E4 9687FF61 BC29AEA1 "));
 
-        final var K_raw = C.modPow(t, p).toByteArray();
-        // Note: BigInteger.toByteArray() returns two's-complement representation: If the BigInteger is positive,
-        // and the first bit of the byte array produced is 1, a 0x00 byte is prepended. This extra byte must be
-        // dropped.
-        final var K = K_raw[0] == 0 ? Arrays.copyOfRange(K_raw, 1, K_raw.length - 1) : K_raw;
+        final var K = BigIntegers.asUnsignedByteArray(128, C.modPow(t, p));
 
         assertThat(K, equalTo(Hex.decode("6BABC7B3 A72BCD7E A385E4C6 2DB2625B" +
                 "D8613B24 149E146A 629311C4 CA6698E3" +
